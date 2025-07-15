@@ -24,7 +24,7 @@
 
         /* Styling for the game canvas */
         canvas {
-            background-color: #87CEEB; /* Lighter sky blue for the canvas */
+            /* Removed background color to allow dynamic sky */
             border: 5px solid #2c3e50;
             border-radius: 15px;
             box-shadow: 0 10px 20px rgba(0,0,0,0.2), 0 6px 6px rgba(0,0,0,0.25);
@@ -119,11 +119,22 @@
         
         let backgroundLayers = [];
         let particles = [];
+        let sun;
+        let fallingStars = [];
+        let highScore = 0;
+        let newHighScore = false;
+        let confettiParticles = [];
         
         let lastTime;
         let pipeTimer = 0;
         let animationFrameId;
         let gameStarted = false;
+        let pipeRandomnessFactor; 
+        let showGameOverScreen = false;
+        let gameTime = 0;
+
+        let currentSkyColor = {};
+        let targetSkyColor = {};
 
         // --- Asset Colors ---
         const PIPE_BELTS = [
@@ -136,12 +147,10 @@
         ];
         
         const PLAYER_BELTS = ['#FFFFFF', '#0077c8', '#6a0dad', '#964B00', '#000000', '#cc0000'];
-        // MODIFIED: Added belt names for the game over screen
         const PLAYER_BELT_NAMES = ['White', 'Blue', 'Purple', 'Brown', 'Black', 'Red'];
 
         // --- Game Logic ---
 
-        // Function to draw a Colombian flag
         function drawFlag(x, y) {
             const flagWidth = 20;
             const flagHeight = 12;
@@ -158,12 +167,11 @@
             ctx.fillRect(x + poleWidth, y - poleHeight + flagHeight * 0.75, flagWidth, flagHeight * 0.25);
         }
 
-        // Function to create the Bogotá-style background
         function createBackground() {
             backgroundLayers = [];
             const groundY = canvas.height;
             const mountains = {
-                x: 0, speed: pipeSpeed * 0.1, hasFlag: true, flagPeak: Math.random() < 0.5 ? 1 : 2,
+                x: 0, speedMultiplier: 0.1, hasFlag: true, flagPeak: Math.random() < 0.5 ? 1 : 2,
                 draw: (offsetX) => {
                     ctx.fillStyle = '#2a4d3e';
                     ctx.beginPath();
@@ -182,8 +190,15 @@
                     }
                 }
             };
+            const hazeLayer = {
+                x: 0, speedMultiplier: 0.2,
+                draw: (offsetX) => {
+                    ctx.fillStyle = 'rgba(211, 211, 211, 0.1)';
+                    ctx.fillRect(offsetX, 0, canvas.width, canvas.height);
+                }
+            };
             const midBuildings = {
-                x: 0, speed: pipeSpeed * 0.3,
+                x: 0, speedMultiplier: 0.3,
                 draw: (offsetX) => {
                     ctx.fillStyle = '#556270';
                     ctx.fillRect(offsetX + canvas.width * 0.2, groundY * 0.4, 40, groundY * 0.6);
@@ -192,7 +207,7 @@
                 }
             };
             const foreBuildings = {
-                x: 0, speed: pipeSpeed * 0.6,
+                x: 0, speedMultiplier: 0.6,
                 draw: (offsetX) => {
                     ctx.fillStyle = '#8c9ba8';
                     ctx.fillRect(offsetX + canvas.width * 0.1, groundY * 0.6, 80, groundY * 0.4);
@@ -200,7 +215,7 @@
                     ctx.fillRect(offsetX + canvas.width * 0.8, groundY * 0.65, 70, groundY * 0.35);
                 }
             };
-            backgroundLayers.push(mountains, midBuildings, foreBuildings);
+            backgroundLayers.push(mountains, hazeLayer, midBuildings, foreBuildings);
         }
 
         // --- Game Initialization ---
@@ -219,10 +234,17 @@
             bird = { x: canvas.width / 4, y: canvas.height / 3, radius: canvas.height / 40, velocity: 0 };
             pipes = [];
             particles = [];
+            fallingStars = [];
+            confettiParticles = [];
             score = 0;
             gameOver = false;
             gameStarted = false;
+            showGameOverScreen = false;
+            newHighScore = false;
+            gameTime = 0;
             
+            highScore = localStorage.getItem('jumpingBeltsHighScore') || 0;
+
             gravity = canvas.height * 3.5;
             jump = -canvas.height * 0.85;
             
@@ -237,6 +259,22 @@
             birdBeltIndex = 0;
             promotionThresholds = [2, 6, 14, 30, 62];
             
+            pipeRandomnessFactor = canvas.height / 4.4;
+
+            sun = {
+                radius: canvas.height / 20,
+                x: canvas.width * 0.7,
+                y: 0,
+                targetY: 0,
+                pixelsPerSecond: (canvas.height / 2) / 36 
+            };
+            sun.y = sun.radius;
+            sun.targetY = sun.y;
+
+            const dayColor = [135, 206, 235];
+            currentSkyColor = { r: dayColor[0], g: dayColor[1], b: dayColor[2] };
+            targetSkyColor = { r: dayColor[0], g: dayColor[1], b: dayColor[2] };
+
             lastTime = null;
             
             createBackground();
@@ -249,27 +287,88 @@
         }
 
         // --- Drawing Functions ---
+        function drawSky() {
+            ctx.fillStyle = `rgb(${Math.round(currentSkyColor.r)}, ${Math.round(currentSkyColor.g)}, ${Math.round(currentSkyColor.b)})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function drawSun() {
+            ctx.fillStyle = '#f1c40f';
+            ctx.beginPath();
+            ctx.arc(sun.x, sun.y, sun.radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function drawFallingStars() {
+            ctx.fillStyle = 'white';
+            fallingStars.forEach(star => {
+                ctx.fillRect(star.x, star.y, star.size, star.size);
+            });
+        }
+
         function drawBackground() {
-            ctx.globalAlpha = 0.4;
             backgroundLayers.forEach(layer => {
                 layer.draw(layer.x);
                 layer.draw(layer.x + canvas.width);
             });
-            ctx.globalAlpha = 1.0;
         }
 
+        function drawFog() {
+            ctx.fillStyle = 'rgba(211, 211, 211, 0.4)'; 
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // MODIFIED: drawBird now includes flowing hair on top
         function drawBird() {
             const birdSize = bird.radius * 2;
             const birdX = bird.x - bird.radius;
             const birdY = bird.y - bird.radius;
+
+            // Draw the light gray block (gi)
             ctx.fillStyle = '#CCCCCC';
             ctx.strokeStyle = '#AAAAAA';
             ctx.lineWidth = 2;
             ctx.fillRect(birdX, birdY, birdSize, birdSize);
             ctx.strokeRect(birdX, birdY, birdSize, birdSize);
+
+            // Draw the belt lower on the block
             const beltHeight = birdSize / 4;
+            const beltY = bird.y + bird.radius * 0.25;
             ctx.fillStyle = PLAYER_BELTS[birdBeltIndex];
-            ctx.fillRect(birdX, bird.y - beltHeight / 2, birdSize, beltHeight);
+            ctx.fillRect(birdX, beltY, birdSize, beltHeight);
+
+            // Draw the eye
+            const eyeRadius = Math.max(2.5, bird.radius / 4); // Bigger eye
+            const eyeX = bird.x + bird.radius / 3.5;
+            const eyeY = bird.y - bird.radius / 3;
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(eyeX, eyeY, eyeRadius, 0, Math.PI * 2);
+            ctx.fill();
+            // Eye highlight
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(eyeX + eyeRadius * 0.25, eyeY - eyeRadius * 0.25, eyeRadius * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Draw Hair (on top of the block, drawn last to overlap)
+            ctx.strokeStyle = '#6d3700'; // Brown hair color
+            ctx.lineWidth = 5; // Thicker hair strands
+            const hairLength = bird.radius * 2;
+            const hairSway = -bird.velocity * 0.25; // Hair sways based on velocity
+            
+            for (let i = -1; i <= 1; i++) {
+                ctx.beginPath();
+                const startX = bird.x + i * (bird.radius * 0.4);
+                const startY = bird.y - bird.radius;
+                ctx.moveTo(startX, startY);
+                ctx.quadraticCurveTo(
+                    startX - hairLength * 0.5, startY + hairSway,
+                    startX - hairLength, startY + hairSway * 0.5
+                );
+                ctx.stroke();
+            }
+            ctx.lineWidth = 2; // Reset line width
         }
         
         function drawParticles() {
@@ -278,6 +377,15 @@
                 ctx.fillStyle = p.color;
                 ctx.fillRect(p.x, p.y, p.size, p.size);
             }
+        }
+
+        function drawConfetti() {
+            confettiParticles.forEach(p => {
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = p.opacity;
+                ctx.fillRect(p.x, p.y, p.w, p.h);
+                ctx.globalAlpha = 1.0;
+            });
         }
 
         function drawReadyScreen() {
@@ -307,6 +415,13 @@
                 ctx.fillStyle = barColor;
                 ctx.fillRect(pipe.x, pipe.topHeight - barHeight, pipe.width, barHeight);
                 ctx.fillRect(pipe.x, bottomPipeY, pipe.width, barHeight);
+
+                ctx.fillStyle = '#8B0000';
+                pipe.splatters.forEach(splatter => {
+                    ctx.beginPath();
+                    ctx.arc(pipe.x + splatter.x, splatter.y, splatter.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                });
             });
         }
 
@@ -317,57 +432,76 @@
             ctx.fillText(score, canvas.width / 2, canvas.height / 8);
         }
 
-        // MODIFIED: drawGameOver now shows the achieved belt
         function drawGameOver() {
             ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = 'white';
             ctx.font = `${canvas.height / 12}px 'Press Start 2P'`;
             ctx.textAlign = 'center';
-            ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - canvas.height / 10);
+            ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - canvas.height / 8);
             
             ctx.font = `${canvas.height / 25}px 'Press Start 2P'`;
-            ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 - canvas.height/40);
+            ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 - canvas.height/25);
+            ctx.fillText(`High Score: ${highScore}`, canvas.width / 2, canvas.height / 2);
 
-            // Display achieved belt
-            const beltName = PLAYER_BELT_NAMES[birdBeltIndex];
-            const beltText = `You got to ${beltName} Belt`;
-            ctx.font = `${canvas.height / 35}px 'Press Start 2P'`;
-            ctx.fillText(beltText, canvas.width / 2, canvas.height / 2 + canvas.height / 25);
+            if (newHighScore) {
+                ctx.font = `${canvas.height / 20}px 'Press Start 2P'`;
+                ctx.shadowColor = '#f1c40f';
+                ctx.shadowBlur = 15;
+                ctx.fillStyle = '#f1c40f';
+                ctx.fillText('NEW HIGHSCORE!', canvas.width / 2, canvas.height / 2 + canvas.height / 15);
+                ctx.shadowBlur = 0;
+            }
             
-            // Draw the belt swatch
-            const beltSwatchWidth = 80;
-            const beltSwatchHeight = 20;
-            const beltSwatchX = canvas.width / 2 - beltSwatchWidth / 2;
-            const beltSwatchY = canvas.height / 2 + canvas.height / 15;
-            
-            ctx.fillStyle = PLAYER_BELTS[birdBeltIndex];
-            ctx.fillRect(beltSwatchX, beltSwatchY, beltSwatchWidth, beltSwatchHeight);
-            
-            // Draw rank bar on swatch
-            const barHeight = beltSwatchHeight;
-            const barWidth = beltSwatchWidth / 5;
-            let barColor = '#000000';
-            if (PLAYER_BELTS[birdBeltIndex] === '#000000') barColor = '#cc0000';
-            if (PLAYER_BELTS[birdBeltIndex] === '#cc0000') barColor = '#FFFFFF';
-            ctx.fillStyle = barColor;
-            ctx.fillRect(beltSwatchX + beltSwatchWidth - barWidth, beltSwatchY, barWidth, barHeight);
-
             ctx.fillStyle = 'white';
             ctx.font = `${canvas.height / 35}px 'Press Start 2P'`;
             ctx.fillText('Click to Restart', canvas.width / 2, canvas.height / 2 + canvas.height / 6);
         }
         
         function createExplosion(x, y, colors) {
-            const particleCount = 40;
+            const particleCount = 60;
             for (let i = 0; i < particleCount; i++) {
                 particles.push({
-                    x: x, y: y, size: Math.random() * 4 + 1,
+                    x: x, y: y, size: Math.random() * 6 + 2,
                     color: colors[Math.floor(Math.random() * colors.length)],
-                    velocityX: (Math.random() - 0.5) * 400,
-                    velocityY: (Math.random() - 0.5) * 400,
-                    life: 0.8
+                    velocityX: (Math.random() - 0.5) * 500,
+                    velocityY: (Math.random() - 0.5) * 500,
+                    life: 1.0
                 });
+            }
+        }
+
+        function createConfetti() {
+            const confettiCount = 150;
+            const confettiColors = ['#f1c40f', '#e74c3c', '#3498db', '#2ecc71', '#9b59b6'];
+            for (let i = 0; i < confettiCount; i++) {
+                confettiParticles.push({
+                    x: Math.random() * canvas.width,
+                    y: -Math.random() * canvas.height,
+                    w: Math.random() * 8 + 5,
+                    h: Math.random() * 5 + 3,
+                    color: confettiColors[Math.floor(Math.random() * confettiColors.length)],
+                    speed: Math.random() * 150 + 100,
+                    opacity: Math.random() * 0.5 + 0.5
+                });
+            }
+        }
+
+        function addSplatterToPipe(pipe, impactPoint) {
+            const splatterCount = 80;
+            for (let i = 0; i < splatterCount; i++) {
+                const offsetX = (Math.random() - 0.5) * bird.radius * 5;
+                const offsetY = (Math.random() - 0.5) * bird.radius * 5;
+                const splatterX = impactPoint.x + offsetX;
+                const splatterY = impactPoint.y + offsetY;
+
+                if (splatterX > pipe.x && splatterX < pipe.x + pipe.width) {
+                    if (splatterY > 0 && splatterY < pipe.topHeight) {
+                        pipe.splatters.push({ x: splatterX - pipe.x, y: splatterY, radius: Math.random() * 5 + 3 });
+                    } else if (splatterY > pipe.topHeight + pipeGap && splatterY < canvas.height) {
+                        pipe.splatters.push({ x: splatterX - pipe.x, y: splatterY, radius: Math.random() * 5 + 3 });
+                    }
+                }
             }
         }
 
@@ -380,11 +514,65 @@
                 p.life -= deltaTime;
                 if (p.life <= 0) particles.splice(i, 1);
             }
+            
+            for (let i = confettiParticles.length - 1; i >= 0; i--) {
+                const p = confettiParticles[i];
+                p.y += p.speed * deltaTime;
+                if (p.y > canvas.height) confettiParticles.splice(i, 1);
+            }
 
-            if (!gameStarted || gameOver) return;
+            const smoothing = 0.05;
+            sun.y += (sun.targetY - sun.y) * smoothing;
+            currentSkyColor.r += (targetSkyColor.r - currentSkyColor.r) * smoothing;
+            currentSkyColor.g += (targetSkyColor.g - currentSkyColor.g) * smoothing;
+            currentSkyColor.b += (targetSkyColor.b - currentSkyColor.b) * smoothing;
+
+            if (!gameStarted || gameOver) {
+                for (let i = fallingStars.length - 1; i >= 0; i--) {
+                    const star = fallingStars[i];
+                    star.y += star.speed * deltaTime;
+                    if (star.y > canvas.height) fallingStars.splice(i, 1);
+                }
+                return;
+            }
+
+            gameTime += deltaTime;
+            sun.targetY = sun.radius + (gameTime * sun.pixelsPerSecond);
+
+            const dayColor = [135, 206, 235];
+            const sunsetColor = [255, 127, 80];
+            const nightColor = [25, 25, 112];
+            if (gameTime <= 36) {
+                const progress = Math.min(gameTime / 36, 1);
+                targetSkyColor.r = dayColor[0] + (sunsetColor[0] - dayColor[0]) * progress;
+                targetSkyColor.g = dayColor[1] + (sunsetColor[1] - dayColor[1]) * progress;
+                targetSkyColor.b = dayColor[2] + (sunsetColor[2] - dayColor[2]) * progress;
+            } else {
+                const progress = Math.min((gameTime - 36) / (65 - 36), 1);
+                targetSkyColor.r = sunsetColor[0] + (nightColor[0] - sunsetColor[0]) * progress;
+                targetSkyColor.g = sunsetColor[1] + (nightColor[1] - sunsetColor[1]) * progress;
+                targetSkyColor.b = sunsetColor[2] + (nightColor[2] - sunsetColor[2]) * progress;
+            }
+
+            if (gameTime >= 45 && gameTime <= 100) {
+                if (Math.random() < 0.3) {
+                    fallingStars.push({
+                        x: Math.random() * canvas.width,
+                        y: 0,
+                        size: Math.random() * 2 + 1,
+                        speed: Math.random() * 50 + 20
+                    });
+                }
+            }
+            
+            for (let i = fallingStars.length - 1; i >= 0; i--) {
+                const star = fallingStars[i];
+                star.y += star.speed * deltaTime;
+                if (star.y > canvas.height) fallingStars.splice(i, 1);
+            }
 
             backgroundLayers.forEach(layer => {
-                layer.x -= layer.speed * deltaTime;
+                layer.x -= (pipeSpeed * layer.speedMultiplier) * deltaTime;
                 if (layer.x < -canvas.width) layer.x = 0;
             });
 
@@ -405,6 +593,8 @@
                 if (!pipe.passed && bird.x > pipe.x + pipe.width) {
                     pipe.passed = true;
                     score++;
+                    pipeSpeed *= 1.02;
+                    pipeRandomnessFactor *= 1.01;
                     if (birdBeltIndex < promotionThresholds.length && score >= promotionThresholds[birdBeltIndex]) {
                         birdBeltIndex++;
                         createExplosion(bird.x, bird.y, [PLAYER_BELTS[birdBeltIndex]]);
@@ -414,14 +604,14 @@
         }
         
         function generatePipes() {
-            const maxDelta = canvas.height / 4.4; 
+            const maxDelta = pipeRandomnessFactor; 
             const absMin = canvas.height / 8, absMax = canvas.height - pipeGap - absMin;
             let newMin = lastPipeHeight - maxDelta, newMax = lastPipeHeight + maxDelta;
             if (newMin < absMin) newMin = absMin;
             if (newMax > absMax) newMax = absMax;
             const topHeight = Math.random() * (newMax - newMin) + newMin;
             const randomColor = PIPE_BELTS[Math.floor(Math.random() * PIPE_BELTS.length)];
-            pipes.push({ x: canvas.width, topHeight, width: pipeWidth, passed: false, color: randomColor });
+            pipes.push({ x: canvas.width, topHeight, width: pipeWidth, passed: false, color: randomColor, splatters: [] });
             lastPipeHeight = topHeight;
         }
 
@@ -433,15 +623,32 @@
             pipes.forEach(pipe => {
                 if (bird.x + bird.radius > pipe.x && bird.x - bird.radius < pipe.x + pipe.width &&
                     (bird.y - bird.radius < pipe.topHeight || bird.y + bird.radius > pipe.topHeight + pipeGap)) {
-                    endGame();
+                    endGame(pipe);
                 }
             });
         }
 
-        function endGame() {
+        function endGame(collidedPipe = null) {
             if (gameOver) return;
             gameOver = true;
-            createExplosion(bird.x, bird.y, [PLAYER_BELTS[birdBeltIndex], '#CCCCCC']);
+            
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('jumpingBeltsHighScore', highScore);
+                newHighScore = true;
+                createConfetti();
+            }
+
+            const explosionColors = [PLAYER_BELTS[birdBeltIndex], '#CCCCCC', '#8B0000', '#B22222'];
+            createExplosion(bird.x, bird.y, explosionColors);
+
+            if (collidedPipe) {
+                addSplatterToPipe(collidedPipe, { x: bird.x, y: bird.y });
+            }
+
+            setTimeout(() => {
+                showGameOverScreen = true;
+            }, 1500);
         }
 
         function gameLoop(currentTime) {
@@ -451,8 +658,11 @@
 
             update(deltaTime || 0);
 
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawSky();
+            drawSun();
+            drawFallingStars();
             drawBackground();
+            drawFog();
             drawPipes();
             
             if (!gameOver) {
@@ -460,13 +670,14 @@
             }
 
             drawParticles();
+            drawConfetti();
             drawScore();
             
             if (!gameStarted && !gameOver) {
                 drawReadyScreen();
             }
             
-            if (gameOver) {
+            if (showGameOverScreen) {
                 drawGameOver();
             }
             
@@ -474,9 +685,9 @@
         }
 
         function handleJump() {
-            if (gameOver) {
+            if (showGameOverScreen) {
                 setup();
-            } else if (gameStarted) {
+            } else if (gameStarted && !gameOver) {
                 bird.velocity = jump;
             }
         }
