@@ -30,8 +30,8 @@
             box-shadow: 0 10px 20px rgba(0,0,0,0.2), 0 6px 6px rgba(0,0,0,0.25);
             display: block;
             max-width: 90%;
-            max-height: 90%;
-            aspect-ratio: 16 / 9;
+            max-height: 85vh; /* Use vh to ensure it fits vertically */
+            aspect-ratio: 1 / 1; 
         }
 
         /* Styling for the game title and instructions */
@@ -118,8 +118,12 @@
         let bird, pipes, score, gameOver, gravity, jump, pipeSpeed, pipeGap, pipeWidth, pipeInterval, lastPipeHeight, birdBeltIndex, promotionThresholds;
         
         let backgroundLayers = [];
-        // MODIFIED: Added array for particles
         let particles = [];
+        
+        let lastTime;
+        let pipeTimer = 0;
+        let animationFrameId;
+        let gameStarted = false;
 
         // --- Asset Colors ---
         const PIPE_BELTS = [
@@ -132,9 +136,10 @@
         ];
         
         const PLAYER_BELTS = ['#FFFFFF', '#0077c8', '#6a0dad', '#964B00', '#000000', '#cc0000'];
+        // MODIFIED: Added belt names for the game over screen
+        const PLAYER_BELT_NAMES = ['White', 'Blue', 'Purple', 'Brown', 'Black', 'Red'];
 
         // --- Game Logic ---
-        let frameCount = 0;
 
         // Function to draw a Colombian flag
         function drawFlag(x, y) {
@@ -200,32 +205,46 @@
 
         // --- Game Initialization ---
         function setup() {
-            const aspectRatio = 16 / 9;
-            let canvasWidth = window.innerWidth * 0.8;
-            let canvasHeight = canvasWidth / aspectRatio;
-            if (canvasHeight > window.innerHeight * 0.7) {
-                canvasHeight = window.innerHeight * 0.7;
-                canvasWidth = canvasHeight * aspectRatio;
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
             }
-            canvas.width = canvasWidth;
-            canvas.height = canvasHeight;
-            bird = { x: canvas.width / 4, y: canvas.height / 3, radius: canvas.height / 30, velocity: 0 };
+
+            const aspectRatio = 1;
+            const isMobile = window.innerWidth < 768;
+            let canvasSize = isMobile ? window.innerWidth * 0.9 : window.innerHeight * 0.8;
+            
+            canvas.width = canvasSize;
+            canvas.height = canvasSize;
+
+            bird = { x: canvas.width / 4, y: canvas.height / 3, radius: canvas.height / 40, velocity: 0 };
             pipes = [];
-            particles = []; // MODIFIED: Clear particles on restart
+            particles = [];
             score = 0;
             gameOver = false;
-            gravity = canvas.height / 4167;
-            jump = -canvas.height / 120;
-            pipeSpeed = canvas.width / 350;
-            pipeWidth = canvas.width / 12.5;
-            pipeGap = canvas.height / 3.825;
-            pipeInterval = 120;
+            gameStarted = false;
+            
+            gravity = canvas.height * 3.5;
+            jump = -canvas.height * 0.85;
+            
+            pipeSpeed = canvas.width / 2.5;
+            pipeInterval = 1.0;
+
+            pipeWidth = canvas.width / 12; 
+            pipeGap = canvas.height / 5;
+            pipeTimer = pipeInterval;
+
             lastPipeHeight = canvas.height / 2;
             birdBeltIndex = 0;
             promotionThresholds = [2, 6, 14, 30, 62];
-            frameCount = 0;
+            
+            lastTime = null;
+            
             createBackground();
-            generatePipes();
+            
+            setTimeout(() => {
+                gameStarted = true;
+            }, 1000);
+
             gameLoop();
         }
 
@@ -253,13 +272,21 @@
             ctx.fillRect(birdX, bird.y - beltHeight / 2, birdSize, beltHeight);
         }
         
-        // MODIFIED: New function to draw particles
         function drawParticles() {
             for (let i = 0; i < particles.length; i++) {
                 const p = particles[i];
                 ctx.fillStyle = p.color;
                 ctx.fillRect(p.x, p.y, p.size, p.size);
             }
+        }
+
+        function drawReadyScreen() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'white';
+            ctx.font = `${canvas.height / 10}px 'Press Start 2P'`;
+            ctx.textAlign = 'center';
+            ctx.fillText('Oss!', canvas.width / 2, canvas.height / 2);
         }
 
         function drawPipes() {
@@ -290,64 +317,88 @@
             ctx.fillText(score, canvas.width / 2, canvas.height / 8);
         }
 
+        // MODIFIED: drawGameOver now shows the achieved belt
         function drawGameOver() {
             ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = 'white';
             ctx.font = `${canvas.height / 12}px 'Press Start 2P'`;
             ctx.textAlign = 'center';
-            ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - canvas.height / 20);
+            ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - canvas.height / 10);
+            
             ctx.font = `${canvas.height / 25}px 'Press Start 2P'`;
-            ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 + canvas.height / 20);
+            ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 - canvas.height/40);
+
+            // Display achieved belt
+            const beltName = PLAYER_BELT_NAMES[birdBeltIndex];
+            const beltText = `You got to ${beltName} Belt`;
             ctx.font = `${canvas.height / 35}px 'Press Start 2P'`;
-            ctx.fillText('Click to Restart', canvas.width / 2, canvas.height / 2 + canvas.height / 8);
+            ctx.fillText(beltText, canvas.width / 2, canvas.height / 2 + canvas.height / 25);
+            
+            // Draw the belt swatch
+            const beltSwatchWidth = 80;
+            const beltSwatchHeight = 20;
+            const beltSwatchX = canvas.width / 2 - beltSwatchWidth / 2;
+            const beltSwatchY = canvas.height / 2 + canvas.height / 15;
+            
+            ctx.fillStyle = PLAYER_BELTS[birdBeltIndex];
+            ctx.fillRect(beltSwatchX, beltSwatchY, beltSwatchWidth, beltSwatchHeight);
+            
+            // Draw rank bar on swatch
+            const barHeight = beltSwatchHeight;
+            const barWidth = beltSwatchWidth / 5;
+            let barColor = '#000000';
+            if (PLAYER_BELTS[birdBeltIndex] === '#000000') barColor = '#cc0000';
+            if (PLAYER_BELTS[birdBeltIndex] === '#cc0000') barColor = '#FFFFFF';
+            ctx.fillStyle = barColor;
+            ctx.fillRect(beltSwatchX + beltSwatchWidth - barWidth, beltSwatchY, barWidth, barHeight);
+
+            ctx.fillStyle = 'white';
+            ctx.font = `${canvas.height / 35}px 'Press Start 2P'`;
+            ctx.fillText('Click to Restart', canvas.width / 2, canvas.height / 2 + canvas.height / 6);
         }
         
-        // MODIFIED: New function to create the explosion
-        function createExplosion(x, y, color) {
-            const particleCount = 30;
+        function createExplosion(x, y, colors) {
+            const particleCount = 40;
             for (let i = 0; i < particleCount; i++) {
                 particles.push({
-                    x: x,
-                    y: y,
-                    size: Math.random() * 3 + 1,
-                    color: color,
-                    velocityX: (Math.random() - 0.5) * 6,
-                    velocityY: (Math.random() - 0.5) * 6,
-                    life: 40
+                    x: x, y: y, size: Math.random() * 4 + 1,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    velocityX: (Math.random() - 0.5) * 400,
+                    velocityY: (Math.random() - 0.5) * 400,
+                    life: 0.8
                 });
             }
         }
 
-        function update() {
-            if (gameOver) return;
-
-            // MODIFIED: Update particles
+        function update(deltaTime) {
             for (let i = particles.length - 1; i >= 0; i--) {
                 const p = particles[i];
-                p.x += p.velocityX;
-                p.y += p.velocityY;
-                p.velocityY += 0.1; // Gravity on particles
-                p.life--;
-                if (p.life <= 0) {
-                    particles.splice(i, 1);
-                }
+                p.x += p.velocityX * deltaTime;
+                p.y += p.velocityY * deltaTime;
+                p.velocityY += gravity * 0.5 * deltaTime;
+                p.life -= deltaTime;
+                if (p.life <= 0) particles.splice(i, 1);
             }
 
+            if (!gameStarted || gameOver) return;
+
             backgroundLayers.forEach(layer => {
-                layer.x -= layer.speed;
+                layer.x -= layer.speed * deltaTime;
                 if (layer.x < -canvas.width) layer.x = 0;
             });
 
-            bird.velocity += gravity;
-            bird.y += bird.velocity;
+            bird.velocity += gravity * deltaTime;
+            bird.y += bird.velocity * deltaTime;
 
-            if (frameCount > 0 && frameCount % pipeInterval === 0) {
+            pipeTimer += deltaTime;
+            if (pipeTimer > pipeInterval) {
                 generatePipes();
+                pipeTimer = 0;
             }
-            
-            pipes.forEach(pipe => { pipe.x -= pipeSpeed; });
+            pipes.forEach(pipe => { pipe.x -= pipeSpeed * deltaTime; });
             pipes = pipes.filter(pipe => pipe.x + pipe.width > 0);
+            
             checkCollisions();
 
             pipes.forEach(pipe => {
@@ -356,16 +407,14 @@
                     score++;
                     if (birdBeltIndex < promotionThresholds.length && score >= promotionThresholds[birdBeltIndex]) {
                         birdBeltIndex++;
-                        // MODIFIED: Trigger explosion on promotion
-                        createExplosion(bird.x, bird.y, PLAYER_BELTS[birdBeltIndex]);
+                        createExplosion(bird.x, bird.y, [PLAYER_BELTS[birdBeltIndex]]);
                     }
                 }
             });
-            frameCount++;
         }
         
         function generatePipes() {
-            const maxDelta = canvas.height / 6; 
+            const maxDelta = canvas.height / 4.4; 
             const absMin = canvas.height / 8, absMax = canvas.height - pipeGap - absMin;
             let newMin = lastPipeHeight - maxDelta, newMax = lastPipeHeight + maxDelta;
             if (newMin < absMin) newMin = absMin;
@@ -377,7 +426,10 @@
         }
 
         function checkCollisions() {
-            if (bird.y + bird.radius > canvas.height || bird.y - bird.radius < 0) endGame();
+            if (bird.y + bird.radius > canvas.height || bird.y - bird.radius < 0) {
+                endGame();
+                return;
+            }
             pipes.forEach(pipe => {
                 if (bird.x + bird.radius > pipe.x && bird.x - bird.radius < pipe.x + pipe.width &&
                     (bird.y - bird.radius < pipe.topHeight || bird.y + bird.radius > pipe.topHeight + pipeGap)) {
@@ -386,26 +438,47 @@
             });
         }
 
-        function endGame() { gameOver = true; }
+        function endGame() {
+            if (gameOver) return;
+            gameOver = true;
+            createExplosion(bird.x, bird.y, [PLAYER_BELTS[birdBeltIndex], '#CCCCCC']);
+        }
 
-        function gameLoop() {
+        function gameLoop(currentTime) {
+            if (!lastTime) { lastTime = currentTime; }
+            const deltaTime = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+
+            update(deltaTime || 0);
+
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             drawBackground();
             drawPipes();
-            drawBird();
-            drawParticles(); // MODIFIED: Draw the particles
+            
+            if (!gameOver) {
+                drawBird();
+            }
+
+            drawParticles();
             drawScore();
+            
+            if (!gameStarted && !gameOver) {
+                drawReadyScreen();
+            }
+            
             if (gameOver) {
                 drawGameOver();
-            } else {
-                requestAnimationFrame(gameLoop);
             }
-            update();
+            
+            animationFrameId = requestAnimationFrame(gameLoop);
         }
 
         function handleJump() {
-            if (gameOver) setup();
-            else bird.velocity = jump;
+            if (gameOver) {
+                setup();
+            } else if (gameStarted) {
+                bird.velocity = jump;
+            }
         }
 
         window.addEventListener('resize', setup);
