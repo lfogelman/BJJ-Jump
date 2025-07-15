@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jumping Belts!</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        /* Basic styling for the page */
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #000000; /* Background is now black */
+            font-family: 'Press Start 2P', cursive;
+            color: white;
+            text-align: center;
+            flex-direction: column;
+        }
+
+        /* Styling for the game canvas */
+        canvas {
+            background-color: #87CEEB; /* Lighter sky blue for the canvas */
+            border: 5px solid #2c3e50;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2), 0 6px 6px rgba(0,0,0,0.25);
+            display: block;
+            max-width: 90%;
+            max-height: 90%;
+            aspect-ratio: 16 / 9;
+        }
+
+        /* Styling for the game title and instructions */
+        h1 {
+            font-size: 2.5rem;
+            text-shadow: 3px 3px 0px #2c3e50;
+            margin-bottom: 1rem;
+        }
+
+        p {
+            font-size: 1rem;
+            margin-top: 1rem;
+        }
+
+        /* Styling for the new promotion info */
+        .promotion-info {
+            font-size: 0.75rem;
+            margin-top: 1.5rem;
+            opacity: 0.8;
+            text-align: center;
+        }
+        .promotion-info p {
+            margin-top: 0;
+            margin-bottom: 0.5rem;
+        }
+        .belt-legend {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap; /* Allow wrapping on small screens */
+        }
+        .belt-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .belt-swatch {
+            width: 20px;
+            height: 12px;
+            border: 1px solid #333;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Jumping Belts!</h1> <!-- Title changed -->
+    <canvas id="gameCanvas"></canvas>
+    <p>Click, Tap, or press Spacebar to Jump!</p>
+    
+    <!-- Added belt promotion instructions with visual swatches -->
+    <div class="promotion-info">
+        <p><strong>PROMOTION SCORES</strong></p>
+        <div class="belt-legend">
+            <div class="belt-item">
+                <span class="belt-swatch" style="background-color: #0077c8;"></span><span>2</span>
+            </div>
+            <span>|</span>
+            <div class="belt-item">
+                <span class="belt-swatch" style="background-color: #6a0dad;"></span><span>6</span>
+            </div>
+            <span>|</span>
+            <div class="belt-item">
+                <span class="belt-swatch" style="background-color: #964B00;"></span><span>14</span>
+            </div>
+            <span>|</span>
+            <div class="belt-item">
+                <span class="belt-swatch" style="background-color: #000000;"></span><span>30</span>
+            </div>
+            <span>|</span>
+            <div class="belt-item">
+                <span class="belt-swatch" style="background-color: #cc0000;"></span><span>62</span>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // --- Canvas and Context Setup ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // --- Game Configuration ---
+        let bird, pipes, score, gameOver, gravity, jump, pipeSpeed, pipeGap, pipeWidth, pipeInterval, lastPipeHeight, birdBeltIndex, promotionThresholds;
+        
+        let backgroundLayers = [];
+        // MODIFIED: Added array for particles
+        let particles = [];
+
+        // --- Asset Colors ---
+        const PIPE_BELTS = [
+            { fill: '#FFFFFF', border: '#CCCCCC' }, // White
+            { fill: '#0077c8', border: '#005fa0' }, // Blue
+            { fill: '#6a0dad', border: '#520a86' }, // Purple
+            { fill: '#964B00', border: '#6d3700' }, // Brown
+            { fill: '#000000', border: '#222222' }, // Black
+            { fill: '#FF0000', border: '#cc0000' }  // Red
+        ];
+        
+        const PLAYER_BELTS = ['#FFFFFF', '#0077c8', '#6a0dad', '#964B00', '#000000', '#cc0000'];
+
+        // --- Game Logic ---
+        let frameCount = 0;
+
+        // Function to draw a Colombian flag
+        function drawFlag(x, y) {
+            const flagWidth = 20;
+            const flagHeight = 12;
+            const poleHeight = 20;
+            const poleWidth = 2;
+
+            ctx.fillStyle = '#7f8c8d';
+            ctx.fillRect(x, y - poleHeight, poleWidth, poleHeight);
+            ctx.fillStyle = '#f1c40f';
+            ctx.fillRect(x + poleWidth, y - poleHeight, flagWidth, flagHeight * 0.5);
+            ctx.fillStyle = '#3498db';
+            ctx.fillRect(x + poleWidth, y - poleHeight + flagHeight * 0.5, flagWidth, flagHeight * 0.25);
+            ctx.fillStyle = '#e74c3c';
+            ctx.fillRect(x + poleWidth, y - poleHeight + flagHeight * 0.75, flagWidth, flagHeight * 0.25);
+        }
+
+        // Function to create the Bogotá-style background
+        function createBackground() {
+            backgroundLayers = [];
+            const groundY = canvas.height;
+            const mountains = {
+                x: 0, speed: pipeSpeed * 0.1, hasFlag: true, flagPeak: Math.random() < 0.5 ? 1 : 2,
+                draw: (offsetX) => {
+                    ctx.fillStyle = '#2a4d3e';
+                    ctx.beginPath();
+                    const peak1X = offsetX + canvas.width * 0.3, peak1Y = groundY * 0.4;
+                    const peak2X = offsetX + canvas.width * 0.7, peak2Y = groundY * 0.55;
+                    ctx.moveTo(offsetX, groundY);
+                    ctx.lineTo(offsetX, groundY * 0.6);
+                    ctx.lineTo(peak1X, peak1Y);
+                    ctx.lineTo(peak2X, peak2Y);
+                    ctx.lineTo(offsetX + canvas.width, groundY * 0.45);
+                    ctx.lineTo(offsetX + canvas.width, groundY);
+                    ctx.closePath();
+                    ctx.fill();
+                    if (mountains.hasFlag) {
+                        drawFlag((mountains.flagPeak === 1 ? peak1X : peak2X) - 10, mountains.flagPeak === 1 ? peak1Y : peak2Y);
+                    }
+                }
+            };
+            const midBuildings = {
+                x: 0, speed: pipeSpeed * 0.3,
+                draw: (offsetX) => {
+                    ctx.fillStyle = '#556270';
+                    ctx.fillRect(offsetX + canvas.width * 0.2, groundY * 0.4, 40, groundY * 0.6);
+                    ctx.fillStyle = '#414a54';
+                    ctx.fillRect(offsetX + canvas.width * 0.7, groundY * 0.5, 50, groundY * 0.5);
+                }
+            };
+            const foreBuildings = {
+                x: 0, speed: pipeSpeed * 0.6,
+                draw: (offsetX) => {
+                    ctx.fillStyle = '#8c9ba8';
+                    ctx.fillRect(offsetX + canvas.width * 0.1, groundY * 0.6, 80, groundY * 0.4);
+                    ctx.fillRect(offsetX + canvas.width * 0.4, groundY * 0.7, 60, groundY * 0.3);
+                    ctx.fillRect(offsetX + canvas.width * 0.8, groundY * 0.65, 70, groundY * 0.35);
+                }
+            };
+            backgroundLayers.push(mountains, midBuildings, foreBuildings);
+        }
+
+        // --- Game Initialization ---
+        function setup() {
+            const aspectRatio = 16 / 9;
+            let canvasWidth = window.innerWidth * 0.8;
+            let canvasHeight = canvasWidth / aspectRatio;
+            if (canvasHeight > window.innerHeight * 0.7) {
+                canvasHeight = window.innerHeight * 0.7;
+                canvasWidth = canvasHeight * aspectRatio;
+            }
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+            bird = { x: canvas.width / 4, y: canvas.height / 3, radius: canvas.height / 30, velocity: 0 };
+            pipes = [];
+            particles = []; // MODIFIED: Clear particles on restart
+            score = 0;
+            gameOver = false;
+            gravity = canvas.height / 4167;
+            jump = -canvas.height / 120;
+            pipeSpeed = canvas.width / 350;
+            pipeWidth = canvas.width / 12.5;
+            pipeGap = canvas.height / 3.825;
+            pipeInterval = 120;
+            lastPipeHeight = canvas.height / 2;
+            birdBeltIndex = 0;
+            promotionThresholds = [2, 6, 14, 30, 62];
+            frameCount = 0;
+            createBackground();
+            generatePipes();
+            gameLoop();
+        }
+
+        // --- Drawing Functions ---
+        function drawBackground() {
+            ctx.globalAlpha = 0.4;
+            backgroundLayers.forEach(layer => {
+                layer.draw(layer.x);
+                layer.draw(layer.x + canvas.width);
+            });
+            ctx.globalAlpha = 1.0;
+        }
+
+        function drawBird() {
+            const birdSize = bird.radius * 2;
+            const birdX = bird.x - bird.radius;
+            const birdY = bird.y - bird.radius;
+            ctx.fillStyle = '#CCCCCC';
+            ctx.strokeStyle = '#AAAAAA';
+            ctx.lineWidth = 2;
+            ctx.fillRect(birdX, birdY, birdSize, birdSize);
+            ctx.strokeRect(birdX, birdY, birdSize, birdSize);
+            const beltHeight = birdSize / 4;
+            ctx.fillStyle = PLAYER_BELTS[birdBeltIndex];
+            ctx.fillRect(birdX, bird.y - beltHeight / 2, birdSize, beltHeight);
+        }
+        
+        // MODIFIED: New function to draw particles
+        function drawParticles() {
+            for (let i = 0; i < particles.length; i++) {
+                const p = particles[i];
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, p.size, p.size);
+            }
+        }
+
+        function drawPipes() {
+            pipes.forEach(pipe => {
+                ctx.fillStyle = pipe.color.fill;
+                ctx.strokeStyle = pipe.color.border;
+                ctx.lineWidth = 5;
+                const bottomPipeY = pipe.topHeight + pipeGap;
+                const bottomPipeHeight = canvas.height - bottomPipeY;
+                ctx.fillRect(pipe.x, 0, pipe.width, pipe.topHeight);
+                ctx.strokeRect(pipe.x, 0, pipe.width, pipe.topHeight);
+                ctx.fillRect(pipe.x, bottomPipeY, pipe.width, bottomPipeHeight);
+                ctx.strokeRect(pipe.x, bottomPipeY, pipe.width, bottomPipeHeight);
+                const barHeight = pipe.width / 5;
+                let barColor = '#000000';
+                if (pipe.color.fill === '#000000') barColor = '#cc0000';
+                else if (pipe.color.fill === '#FF0000') barColor = '#FFFFFF';
+                ctx.fillStyle = barColor;
+                ctx.fillRect(pipe.x, pipe.topHeight - barHeight, pipe.width, barHeight);
+                ctx.fillRect(pipe.x, bottomPipeY, pipe.width, barHeight);
+            });
+        }
+
+        function drawScore() {
+            ctx.fillStyle = 'white';
+            ctx.font = `${canvas.height / 15}px 'Press Start 2P'`;
+            ctx.textAlign = 'center';
+            ctx.fillText(score, canvas.width / 2, canvas.height / 8);
+        }
+
+        function drawGameOver() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'white';
+            ctx.font = `${canvas.height / 12}px 'Press Start 2P'`;
+            ctx.textAlign = 'center';
+            ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - canvas.height / 20);
+            ctx.font = `${canvas.height / 25}px 'Press Start 2P'`;
+            ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 + canvas.height / 20);
+            ctx.font = `${canvas.height / 35}px 'Press Start 2P'`;
+            ctx.fillText('Click to Restart', canvas.width / 2, canvas.height / 2 + canvas.height / 8);
+        }
+        
+        // MODIFIED: New function to create the explosion
+        function createExplosion(x, y, color) {
+            const particleCount = 30;
+            for (let i = 0; i < particleCount; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    size: Math.random() * 3 + 1,
+                    color: color,
+                    velocityX: (Math.random() - 0.5) * 6,
+                    velocityY: (Math.random() - 0.5) * 6,
+                    life: 40
+                });
+            }
+        }
+
+        function update() {
+            if (gameOver) return;
+
+            // MODIFIED: Update particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.velocityX;
+                p.y += p.velocityY;
+                p.velocityY += 0.1; // Gravity on particles
+                p.life--;
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            backgroundLayers.forEach(layer => {
+                layer.x -= layer.speed;
+                if (layer.x < -canvas.width) layer.x = 0;
+            });
+
+            bird.velocity += gravity;
+            bird.y += bird.velocity;
+
+            if (frameCount > 0 && frameCount % pipeInterval === 0) {
+                generatePipes();
+            }
+            
+            pipes.forEach(pipe => { pipe.x -= pipeSpeed; });
+            pipes = pipes.filter(pipe => pipe.x + pipe.width > 0);
+            checkCollisions();
+
+            pipes.forEach(pipe => {
+                if (!pipe.passed && bird.x > pipe.x + pipe.width) {
+                    pipe.passed = true;
+                    score++;
+                    if (birdBeltIndex < promotionThresholds.length && score >= promotionThresholds[birdBeltIndex]) {
+                        birdBeltIndex++;
+                        // MODIFIED: Trigger explosion on promotion
+                        createExplosion(bird.x, bird.y, PLAYER_BELTS[birdBeltIndex]);
+                    }
+                }
+            });
+            frameCount++;
+        }
+        
+        function generatePipes() {
+            const maxDelta = canvas.height / 6; 
+            const absMin = canvas.height / 8, absMax = canvas.height - pipeGap - absMin;
+            let newMin = lastPipeHeight - maxDelta, newMax = lastPipeHeight + maxDelta;
+            if (newMin < absMin) newMin = absMin;
+            if (newMax > absMax) newMax = absMax;
+            const topHeight = Math.random() * (newMax - newMin) + newMin;
+            const randomColor = PIPE_BELTS[Math.floor(Math.random() * PIPE_BELTS.length)];
+            pipes.push({ x: canvas.width, topHeight, width: pipeWidth, passed: false, color: randomColor });
+            lastPipeHeight = topHeight;
+        }
+
+        function checkCollisions() {
+            if (bird.y + bird.radius > canvas.height || bird.y - bird.radius < 0) endGame();
+            pipes.forEach(pipe => {
+                if (bird.x + bird.radius > pipe.x && bird.x - bird.radius < pipe.x + pipe.width &&
+                    (bird.y - bird.radius < pipe.topHeight || bird.y + bird.radius > pipe.topHeight + pipeGap)) {
+                    endGame();
+                }
+            });
+        }
+
+        function endGame() { gameOver = true; }
+
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawBackground();
+            drawPipes();
+            drawBird();
+            drawParticles(); // MODIFIED: Draw the particles
+            drawScore();
+            if (gameOver) {
+                drawGameOver();
+            } else {
+                requestAnimationFrame(gameLoop);
+            }
+            update();
+        }
+
+        function handleJump() {
+            if (gameOver) setup();
+            else bird.velocity = jump;
+        }
+
+        window.addEventListener('resize', setup);
+        document.addEventListener('keydown', (e) => { if (e.code === 'Space') handleJump(); });
+        canvas.addEventListener('mousedown', handleJump);
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); handleJump(); });
+
+        setup();
+    </script>
+
+</body>
+</html>
