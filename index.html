@@ -318,7 +318,7 @@
             ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
 
-        // MODIFIED: drawBird now includes flowing hair on top
+        // MODIFIED: drawBird now has more detailed and bouncy hair
         function drawBird() {
             const birdSize = bird.radius * 2;
             const birdX = bird.x - bird.radius;
@@ -338,37 +338,45 @@
             ctx.fillRect(birdX, beltY, birdSize, beltHeight);
 
             // Draw the eye
-            const eyeRadius = Math.max(2.5, bird.radius / 4); // Bigger eye
+            const eyeRadius = Math.max(2.5, bird.radius / 4);
             const eyeX = bird.x + bird.radius / 3.5;
             const eyeY = bird.y - bird.radius / 3;
             ctx.fillStyle = 'black';
             ctx.beginPath();
             ctx.arc(eyeX, eyeY, eyeRadius, 0, Math.PI * 2);
             ctx.fill();
-            // Eye highlight
             ctx.fillStyle = 'white';
             ctx.beginPath();
             ctx.arc(eyeX + eyeRadius * 0.25, eyeY - eyeRadius * 0.25, eyeRadius * 0.4, 0, Math.PI * 2);
             ctx.fill();
-
-            // Draw Hair (on top of the block, drawn last to overlap)
-            ctx.strokeStyle = '#6d3700'; // Brown hair color
-            ctx.lineWidth = 5; // Thicker hair strands
-            const hairLength = bird.radius * 2;
-            const hairSway = -bird.velocity * 0.25; // Hair sways based on velocity
             
-            for (let i = -1; i <= 1; i++) {
+            // Draw Hair (on top of the block, drawn last to overlap)
+            ctx.fillStyle = '#6d3700'; // Brown hair color
+            // Static part of the hair
+            ctx.fillRect(birdX, birdY - 5, birdSize, 10);
+
+            // Flowing part of the hair
+            const hairSway = -bird.velocity * 0.3; // More reactive sway
+            const maxSway = bird.radius; // Increased max sway
+            const clampedSway = Math.max(-maxSway, Math.min(maxSway, hairSway));
+            ctx.strokeStyle = '#6d3700';
+            ctx.lineWidth = 2; // Thinner strands
+            for (let i = 0; i < 10; i++) { // Doubled strands
                 ctx.beginPath();
-                const startX = bird.x + i * (bird.radius * 0.4);
+                const startX = bird.x - bird.radius + (i * bird.radius * 0.22);
                 const startY = bird.y - bird.radius;
+                const hairLength = bird.radius * 0.5; // Shortened hair
+                const bounce = Math.sin(gameTime * 40 + i) * 4; // Bouncier effect
+                const endX = startX - hairLength + (Math.random() - 0.5) * 6;
+                const endY = startY + clampedSway + bounce;
                 ctx.moveTo(startX, startY);
                 ctx.quadraticCurveTo(
-                    startX - hairLength * 0.5, startY + hairSway,
-                    startX - hairLength, startY + hairSway * 0.5
+                    startX - hairLength * 0.5, startY + clampedSway * 0.7 + bounce,
+                    endX, endY
                 );
                 ctx.stroke();
             }
-            ctx.lineWidth = 2; // Reset line width
+            ctx.lineWidth = 2; // Reset
         }
         
         function drawParticles() {
@@ -444,18 +452,42 @@
             ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 - canvas.height/25);
             ctx.fillText(`High Score: ${highScore}`, canvas.width / 2, canvas.height / 2);
 
+            let beltTextY = canvas.height / 2 + canvas.height / 15;
             if (newHighScore) {
                 ctx.font = `${canvas.height / 20}px 'Press Start 2P'`;
                 ctx.shadowColor = '#f1c40f';
                 ctx.shadowBlur = 15;
                 ctx.fillStyle = '#f1c40f';
-                ctx.fillText('NEW HIGHSCORE!', canvas.width / 2, canvas.height / 2 + canvas.height / 15);
+                ctx.fillText('NEW HIGHSCORE!', canvas.width / 2, beltTextY);
                 ctx.shadowBlur = 0;
+                beltTextY += canvas.height / 15;
             }
             
+            const beltName = PLAYER_BELT_NAMES[birdBeltIndex];
+            const beltText = `You got to ${beltName} Belt`;
+            ctx.font = `${canvas.height / 35}px 'Press Start 2P'`;
+            ctx.fillStyle = 'white';
+            ctx.fillText(beltText, canvas.width / 2, beltTextY);
+            
+            const beltSwatchWidth = 80;
+            const beltSwatchHeight = 20;
+            const beltSwatchX = canvas.width / 2 - beltSwatchWidth / 2;
+            const beltSwatchY = beltTextY + 15;
+            
+            ctx.fillStyle = PLAYER_BELTS[birdBeltIndex];
+            ctx.fillRect(beltSwatchX, beltSwatchY, beltSwatchWidth, beltSwatchHeight);
+            
+            const barHeight = beltSwatchHeight;
+            const barWidth = beltSwatchWidth / 5;
+            let barColor = '#000000';
+            if (PLAYER_BELTS[birdBeltIndex] === '#000000') barColor = '#cc0000';
+            if (PLAYER_BELTS[birdBeltIndex] === '#cc0000') barColor = '#FFFFFF';
+            ctx.fillStyle = barColor;
+            ctx.fillRect(beltSwatchX + beltSwatchWidth - barWidth, beltSwatchY, barWidth, barHeight);
+
             ctx.fillStyle = 'white';
             ctx.font = `${canvas.height / 35}px 'Press Start 2P'`;
-            ctx.fillText('Click to Restart', canvas.width / 2, canvas.height / 2 + canvas.height / 6);
+            ctx.fillText('Click to Restart', canvas.width / 2, beltSwatchY + beltSwatchHeight + 30);
         }
         
         function createExplosion(x, y, colors) {
